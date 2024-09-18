@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+# Function to process a single URL
+process_url() {
+    local URL="$1"
+    local FOLDER="$2"
+    
+    echo "Processing URL: $URL"
+    
+    # Create folder if it does not exist
+    if [ -n "$FOLDER" ]; then
+        mkdir -p "$FOLDER"
+        OUTPUT_PATH="$FOLDER/%(artist)s - %(title)s.%(ext)s"
+    else
+        OUTPUT_PATH="%(artist)s - %(title)s.%(ext)s"
+    fi
+    
+    #yt-dlp -x --audio-format m4a --embed-thumbnail --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --output "$OUTPUT_PATH" "$URL"
+    yt-dlp  -f bestaudio -x --audio-format mp3 --embed-thumbnail --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --output "$OUTPUT_PATH" "$URL"
+}
+
+# Check if at least one argument is provided
+if [ "$#" -lt 1 ]; then
+    echo "Usage: $0 [--named-folders] <URL|path_to_file>"
+    exit 1
+fi
+
+# Check if --named-folders flag is present
+NAMED_FOLDERS=false
+if [ "$1" == "--named-folders" ]; then
+    NAMED_FOLDERS=true
+    shift
+fi
+
+# Check if exactly one argument is provided (the URL or file path)
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 [--named-folders] <URL|path_to_file>"
+    exit 1
+fi
+
+# Check if the argument is a file and if it exists
+if [ -f "$1" ]; then
+    FILE="$1"
+    # Read each line from the file and process it
+    while IFS= read -r LINE; do
+        # Skip empty lines
+        [ -z "$LINE" ] && continue
+        
+        # Extract URL and folder name (if --named-folders is enabled)
+        if $NAMED_FOLDERS; then
+            if [[ "$LINE" =~ \"(.*?)\" ]]; then
+                FOLDER_NAME="${BASH_REMATCH[1]}"
+                URL="${LINE%%\"*}"
+                URL="${URL##*\"}"
+                process_url "$URL" "$FOLDER_NAME"
+            else
+                echo "Error: Line '$LINE' does not contain a folder name in quotes"
+            fi
+        else
+            process_url "$LINE" ""
+        fi
+    done < "$FILE"
+else
+    # Treat the argument as a URL
+    URL="$1"
+    process_url "$URL" ""
+fi
+
