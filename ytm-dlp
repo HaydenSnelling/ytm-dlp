@@ -1,9 +1,61 @@
 #!/usr/bin/env bash
 
+# Function to display help
+show_help() {
+    echo "Usage: ytm-dlp [OPTIONS] <URL|path_to_file>"
+    echo
+    echo "Basic Usage:"
+    echo "  To download an MP3 file with cover art:"
+    echo "    ytm-dlp https://music.youtube.com/watch?v=yK-6yAt3c-U"
+    echo
+    echo "  To download without cover art:"
+    echo "    ytm-dlp --no-art https://music.youtube.com/watch?v=yK-6yAt3c-U"
+    echo
+    echo "Additional Cover Art Options:"
+    echo "  If you are downloading a song without official cover art like a mashup or fan made remix,"
+    echo "  The center of the thumbnail will be used as the cover art."
+    echo 
+    echo "  If this is not to your liking you can use the following options to choose a different part of the thumbnail"
+    echo "to use as the cover art."
+    echo
+    echo "Cover Art Options:"
+    echo "  --art-left      Crop cover art to 1:1 ratio (left-aligned)"
+    echo "  --art-right     Crop cover art to 1:1 ratio (right-aligned)"
+    echo "  --art-mid-left  Crop cover art to 1:1 ratio (mid-left aligned)"
+    echo "  --art-mid-right Crop cover art to 1:1 ratio (mid-right aligned)"
+    echo
+    echo "  --normal-art    Keep original cover art without cropping"
+    echo
+    echo "  Example for adjusting cover art (useful for mashups or fan remixes):"
+    echo "    ytm-dlp --normal-art https://music.youtube.com/watch?v=yK-6yAt3c-U"
+    echo "    ytm-dlp --art-mid-left https://music.youtube.com/watch?v=yK-6yAt3c-U"
+    echo
+    echo "Playlist and Album Download:"
+    echo "  You can use a URL of an album or any playlist to download all songs:"
+    echo "    ytm-dlp https://music.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj"
+    echo
+    echo "Batch Download:"
+    echo "  To queue multiple album downloads, create a file with URLs on separate lines:"
+    echo "    https://music.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj"
+    echo "    https://music.youtube.com/playlist?list=OLAK5uy_nYdU5PuoUEB0l1waLasIRvqMC2PzWRjMg"
+    echo
+    echo "  To automatically download each album into its own folder, add the folder name in quotes:"
+    echo "    https://music.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj \"Best Hits\""
+    echo "    https://music.youtube.com/playlist?list=OLAK5uy_nYdU5PuoUEB0l1waLasIRvqMC2PzWRjMg \"MM..FOOD\""
+    echo
+    echo "Chapter Splitting:"
+    echo "  By default, ytm-dlp will attempt to split chapters incase you are downloading an album that is one big video."
+    echo
+    echo "Other Options:"
+    echo "  --help          Display this help message"
+    echo
+}
+
 # Function to process a single URL
 process_url() {
     local URL="$1"
     local FOLDER="$2"
+    local YT_DLP_ARGS="$3"
     
     echo "Processing URL: $URL"
     
@@ -15,54 +67,170 @@ process_url() {
         OUTPUT_PATH="%(artist)s - %(title)s.%(ext)s"
     fi
     
-    #yt-dlp -x --audio-format m4a --embed-thumbnail --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --output "$OUTPUT_PATH" "$URL"
-    yt-dlp  -f bestaudio -x --audio-format mp3 --embed-thumbnail --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --output "$OUTPUT_PATH" "$URL"
+    yt-dlp -f bestaudio -x --audio-format mp3 $YT_DLP_ARGS --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --split-chapters --output "$OUTPUT_PATH" "$URL"
+}
+
+# Function to crop cover art
+crop_cover() {
+    local input_file="$1"
+    local crop_position="$2"
+    local temp_dir=$(mktemp -d)
+
+    # Extract cover art and create coverless MP3
+    ffmpeg -i "$input_file" -an -c:v copy "${temp_dir}/cover.jpg"
+    ffmpeg -i "$input_file" -c copy -map 0 -map -0:v "${temp_dir}/coverless.mp3"
+
+    # Get dimensions of the cover image
+    dimensions=$(ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=width,height -of csv=p=0 "${temp_dir}/cover.jpg")
+    width=$(echo $dimensions | cut -d',' -f1)
+    height=$(echo $dimensions | cut -d',' -f2)
+
+    # Calculate crop dimensions
+    if [ $width -gt $height ]; then
+        crop_size=$height
+        case $crop_position in
+            "left")
+                x_offset=0
+                ;;
+            "mid-left")
+                x_offset=$(( (width - height) / 4 ))
+                ;;
+            "mid-right")
+                x_offset=$(( (width - height) * 3 / 4 ))
+                ;;
+            "right")
+                x_offset=$((width - height))
+                ;;
+            *)
+                x_offset=$(( (width - height) / 2 ))
+                ;;
+        esac
+        y_offset=0
+    else
+        crop_size=$width
+        x_offset=0
+        case $crop_position in
+            "left")
+                y_offset=0
+                ;;
+            "mid-left")
+                y_offset=$(( (height - width) / 4 ))
+                ;;
+            "mid-right")
+                y_offset=$(( (height - width) * 3 / 4 ))
+                ;;
+            "right")
+                y_offset=$((height - width))
+                ;;
+            *)
+                y_offset=$(( (height - width) / 2 ))
+                ;;
+        esac
+    fi
+
+    # Crop the image to 1:1
+    ffmpeg -i "${temp_dir}/cover.jpg" -filter:v "crop=${crop_size}:${crop_size}:${x_offset}:${y_offset}" "${temp_dir}/cover_cropped.jpg"
+
+    # Apply the new cropped image back to the MP3, overwriting the original file
+    ffmpeg -i "${temp_dir}/coverless.mp3" -i "${temp_dir}/cover_cropped.jpg" -map 0 -map 1 -c copy -id3v2_version 3 -metadata:s:v title="Cover" -metadata:s:v comment="Cover image" -y "$input_file"
+
+    # Clean up temporary files
+    rm -r "$temp_dir"
+
+    echo "Cover art cropped for: $input_file"
 }
 
 # Check if at least one argument is provided
 if [ "$#" -lt 1 ]; then
-    echo "Usage: $0 [--named-folders] <URL|path_to_file>"
+    show_help
     exit 1
 fi
 
-# Check if --named-folders flag is present
-NAMED_FOLDERS=false
-if [ "$1" == "--named-folders" ]; then
-    NAMED_FOLDERS=true
-    shift
+CROP_COVER=true
+CROP_POSITION="center"
+YT_DLP_ARGS="--embed-thumbnail"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --crop-cover)
+            CROP_COVER=true
+            CROP_POSITION="center"
+            shift
+            ;;
+        --normal-art)
+            CROP_COVER=false
+            YT_DLP_ARGS="--embed-thumbnail"
+            shift
+            ;;
+        --art-left)
+            CROP_COVER=true
+            CROP_POSITION="left"
+            shift
+            ;;
+        --art-right)
+            CROP_COVER=true
+            CROP_POSITION="right"
+            shift
+            ;;
+        --art-mid-left)
+            CROP_COVER=true
+            CROP_POSITION="mid-left"
+            shift
+            ;;
+        --art-mid-right)
+            CROP_COVER=true
+            CROP_POSITION="mid-right"
+            shift
+            ;;
+        --no-art)
+            CROP_COVER=false
+            YT_DLP_ARGS=""
+            shift
+            ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        *)
+            MAIN_ARG="$1"
+            shift
+            ;;
+    esac
+done
+
+# Create snapshot if cropping cover
+if $CROP_COVER; then
+    find . -type f > .snapshot-before
 fi
 
-# Check if exactly one argument is provided (the URL or file path)
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 [--named-folders] <URL|path_to_file>"
-    exit 1
-fi
-
-# Check if the argument is a file and if it exists
-if [ -f "$1" ]; then
-    FILE="$1"
-    # Read each line from the file and process it
+# Process the main argument (URL or file)
+if [ -f "$MAIN_ARG" ]; then
+    FILE="$MAIN_ARG"
     while IFS= read -r LINE; do
-        # Skip empty lines
         [ -z "$LINE" ] && continue
-        
-        # Extract URL and folder name (if --named-folders is enabled)
-        if $NAMED_FOLDERS; then
-            if [[ "$LINE" =~ \"(.*?)\" ]]; then
-                FOLDER_NAME="${BASH_REMATCH[1]}"
-                URL="${LINE%%\"*}"
-                URL="${URL##*\"}"
-                process_url "$URL" "$FOLDER_NAME"
-            else
-                echo "Error: Line '$LINE' does not contain a folder name in quotes"
-            fi
+        if [[ "$LINE" =~ \"(.*?)\"$ ]]; then
+            FOLDER_NAME="${BASH_REMATCH[1]}"
+            URL="${LINE%%\"*}"
+            URL="${URL% }"
+            process_url "$URL" "$FOLDER_NAME" "$YT_DLP_ARGS"
         else
-            process_url "$LINE" ""
+            process_url "$LINE" "" "$YT_DLP_ARGS"
         fi
     done < "$FILE"
 else
-    # Treat the argument as a URL
-    URL="$1"
-    process_url "$URL" ""
+    process_url "$MAIN_ARG" "" "$YT_DLP_ARGS"
+fi
+
+# Crop cover art for new files if cropping is enabled
+if $CROP_COVER; then
+    find . -type f > .snapshot-after
+    new_files=$(comm -13 .snapshot-before .snapshot-after)
+    while IFS= read -r file; do
+        if [[ "$file" == *.mp3 ]]; then
+            crop_cover "$file" "$CROP_POSITION"
+        fi
+    done <<< "$new_files"
+    rm .snapshot-before .snapshot-after
 fi
 
