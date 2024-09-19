@@ -49,6 +49,8 @@ show_help() {
     echo "Other Options:"
     echo "  --help          Display this help message"
     echo
+    echo "  --no-artist     Exclude artist name from the output filename"
+    echo
 }
 
 # Function to process a single URL
@@ -56,15 +58,16 @@ process_url() {
     local URL="$1"
     local FOLDER="$2"
     local YT_DLP_ARGS="$3"
+    local OUTPUT_TEMPLATE="$4"
     
     echo "Processing URL: $URL"
     
     # Create folder if it does not exist
     if [ -n "$FOLDER" ]; then
         mkdir -p "$FOLDER"
-        OUTPUT_PATH="$FOLDER/%(artist)s - %(title)s.%(ext)s"
+        OUTPUT_PATH="$FOLDER/$OUTPUT_TEMPLATE"
     else
-        OUTPUT_PATH="%(artist)s - %(title)s.%(ext)s"
+        OUTPUT_PATH="$OUTPUT_TEMPLATE"
     fi
     
     yt-dlp -f bestaudio -x --audio-format mp3 $YT_DLP_ARGS --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --split-chapters --output "$OUTPUT_PATH" "$URL"
@@ -149,6 +152,7 @@ fi
 CROP_COVER=true
 CROP_POSITION="center"
 YT_DLP_ARGS="--embed-thumbnail"
+OUTPUT_TEMPLATE="%(artist)s - %(title)s.%(ext)s"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -188,6 +192,10 @@ while [[ $# -gt 0 ]]; do
             YT_DLP_ARGS=""
             shift
             ;;
+        --no-artist)
+            OUTPUT_TEMPLATE="%(title)s.%(ext)s"
+            shift
+            ;;
         --help)
             show_help
             exit 0
@@ -213,13 +221,13 @@ if [ -f "$MAIN_ARG" ]; then
             FOLDER_NAME="${BASH_REMATCH[1]}"
             URL="${LINE%%\"*}"
             URL="${URL% }"
-            process_url "$URL" "$FOLDER_NAME" "$YT_DLP_ARGS"
+            process_url "$URL" "$FOLDER_NAME" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE"
         else
-            process_url "$LINE" "" "$YT_DLP_ARGS"
+            process_url "$LINE" "" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE"
         fi
     done < "$FILE"
 else
-    process_url "$MAIN_ARG" "" "$YT_DLP_ARGS"
+    process_url "$MAIN_ARG" "" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE"
 fi
 
 # Crop cover art for new files if cropping is enabled
