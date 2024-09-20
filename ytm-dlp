@@ -44,7 +44,8 @@ show_help() {
     echo "    https://music.youtube.com/playlist?list=OLAK5uy_nYdU5PuoUEB0l1waLasIRvqMC2PzWRjMg \"MM..FOOD\""
     echo
     echo "Chapter Splitting:"
-    echo "  By default, ytm-dlp will attempt to split chapters incase you are downloading an album that is one big video."
+    echo "  Use --split-chapters to save each chapter as an individual song:"
+    echo "    ytm-dlp --split-chapters https://music.youtube.com/watch?v=example"
     echo
     echo "Other Options:"
     echo "  --help          Display this help message"
@@ -59,6 +60,7 @@ process_url() {
     local FOLDER="$2"
     local YT_DLP_ARGS="$3"
     local OUTPUT_TEMPLATE="$4"
+    local SPLIT_CHAPTERS="$5"
     
     echo "Processing URL: $URL"
     
@@ -70,7 +72,11 @@ process_url() {
         OUTPUT_PATH="$OUTPUT_TEMPLATE"
     fi
     
-    yt-dlp -f bestaudio -x --audio-format mp3 $YT_DLP_ARGS --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --split-chapters --output "$OUTPUT_PATH" "$URL"
+    if [ "$SPLIT_CHAPTERS" = true ]; then
+        YT_DLP_ARGS="$YT_DLP_ARGS --split-chapters"
+    fi
+    
+    yt-dlp -f bestaudio -x --audio-format mp3 $YT_DLP_ARGS --add-metadata --embed-metadata --postprocessor-args "-id3v2_version 3" --output "$OUTPUT_PATH" "$URL"
 }
 
 # Function to crop cover art
@@ -153,6 +159,7 @@ CROP_COVER=true
 CROP_POSITION="center"
 YT_DLP_ARGS="--embed-thumbnail"
 OUTPUT_TEMPLATE="%(artist)s - %(title)s.%(ext)s"
+SPLIT_CHAPTERS=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -200,6 +207,10 @@ while [[ $# -gt 0 ]]; do
             show_help
             exit 0
             ;;
+        --split-chapters)
+            SPLIT_CHAPTERS=true
+            shift
+            ;;
         *)
             MAIN_ARG="$1"
             shift
@@ -221,13 +232,13 @@ if [ -f "$MAIN_ARG" ]; then
             FOLDER_NAME="${BASH_REMATCH[1]}"
             URL="${LINE%%\"*}"
             URL="${URL% }"
-            process_url "$URL" "$FOLDER_NAME" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE"
+            process_url "$URL" "$FOLDER_NAME" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE" "$SPLIT_CHAPTERS"
         else
-            process_url "$LINE" "" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE"
+            process_url "$LINE" "" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE" "$SPLIT_CHAPTERS"
         fi
     done < "$FILE"
 else
-    process_url "$MAIN_ARG" "" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE"
+    process_url "$MAIN_ARG" "" "$YT_DLP_ARGS" "$OUTPUT_TEMPLATE" "$SPLIT_CHAPTERS"
 fi
 
 # Crop cover art for new files if cropping is enabled
