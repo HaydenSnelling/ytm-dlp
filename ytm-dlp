@@ -25,6 +25,7 @@ show_help() {
     echo "  --art-mid-right Crop cover art to 1:1 ratio (mid-right aligned)"
     echo
     echo "  --normal-art    Keep original cover art without cropping"
+    echo "  --no-art        Skip embedding of cover art entirely"
     echo
     echo "  Example for adjusting cover art (useful for mashups or fan remixes):"
     echo "    ytm-dlp --normal-art https://music.youtube.com/watch?v=yK-6yAt3c-U"
